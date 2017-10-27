@@ -496,85 +496,25 @@ create_pagetables(vm_paddr_t *firstaddr)
 		((pt_entry_t *)KPTphys)[i] |= PG_RW | PG_V | PG_G;
 	}
 
-#if SVA_DEBUG
-    printf("KPTphys[0]:\t\t\t %p, val: 0x%lx\n",&((pdp_entry_t *)KPTphys)[0],
-            ((pdp_entry_t *)KPTphys)[0]);
-    printf("KPTphys[1]:\t\t\t %p, val: 0x%lx\n",&((pdp_entry_t *)KPTphys)[1],
-            ((pdp_entry_t *)KPTphys)[1]);
-    printf("KPTphys[2]:\t\t\t %p, val: 0x%lx\n",&((pdp_entry_t *)KPTphys)[2],
-            ((pdp_entry_t *)KPTphys)[2]);
-    printf("KPTphys[25]:\t\t\t %p, val: 0x%lx\n",&((pdp_entry_t *)KPTphys)[25],
-            ((pdp_entry_t *)KPTphys)[25]);
-    printf("KPTphys[%d]:\t\t\t %p, val: 0x%lx\n", i-1, &((pdp_entry_t *)KPTphys)[i-1],
-            ((pdp_entry_t *)KPTphys)[i-1]);
-    printf("firstaddr:\t\t\t %p, val: 0x%lx\n", firstaddr, *firstaddr);
-#endif
-
 	/* Now map the page tables at their location within PTmap */
 	for (i = 0; i < NKPT; i++) {
 		((pd_entry_t *)KPDphys)[i] = KPTphys + (i << PAGE_SHIFT);
 		((pd_entry_t *)KPDphys)[i] |= PG_RW | PG_V;
 	}
     
-#if SVA_DEBUG
-    printf("Map the pts at location in ptmap");
-    printf("KPDphys[0]:\t\t\t %p, val: 0x%lx\n",&((pdp_entry_t *)KPDphys)[0],
-            ((pdp_entry_t *)KPDphys)[0]);
-    printf("KPDphys[1]:\t\t\t %p, val: 0x%lx\n",&((pdp_entry_t *)KPDphys)[1],
-            ((pdp_entry_t *)KPDphys)[1]);
-    printf("KPDphys[2]:\t\t\t %p, val: 0x%lx\n",&((pdp_entry_t *)KPDphys)[2],
-            ((pdp_entry_t *)KPDphys)[2]);
-    printf("KPDphys[25]:\t\t\t %p, val: 0x%lx\n",&((pdp_entry_t *)KPDphys)[25],
-            ((pdp_entry_t *)KPDphys)[25]);
-    printf("KPDphys[%d]:\t\t\t %p, val: 0x%lx\n", i-1, &((pdp_entry_t *)KPDphys)[i-1],
-            ((pdp_entry_t *)KPDphys)[i-1]);
-#endif
-
 	/* Map from zero to end of allocations under 2M pages */
 	/* This replaces some of the KPTphys entries above */
 	for (i = 0; (i << PDRSHIFT) < *firstaddr; i++) {
 		((pd_entry_t *)KPDphys)[i] = i << PDRSHIFT;
 		((pd_entry_t *)KPDphys)[i] |= PG_RW | PG_V | PG_PS | PG_G;
 	}
-    
-#if SVA_DEBUG
-    printf("Now doing zero to end of alloc under 2M pages\n");
-    printf("KPDphys[0]:\t\t\t %p, val: 0x%lx\n",&((pdp_entry_t *)KPDphys)[0],
-            ((pdp_entry_t *)KPDphys)[0]);
-    printf("KPDphys[1]:\t\t\t %p, val: 0x%lx\n",&((pdp_entry_t *)KPDphys)[1],
-            ((pdp_entry_t *)KPDphys)[1]);
-    printf("KPDphys[2]:\t\t\t %p, val: 0x%lx\n",&((pdp_entry_t *)KPDphys)[2],
-            ((pdp_entry_t *)KPDphys)[2]);
-    printf("KPDphys[25]:\t\t\t %p, val: 0x%lx\n",&((pdp_entry_t *)KPDphys)[25],
-            ((pdp_entry_t *)KPDphys)[25]);
-    printf("KPDphys[%d]:\t\t\t %p, val: 0x%lx\n", i-1, &((pdp_entry_t *)KPDphys)[i-1],
-            ((pdp_entry_t *)KPDphys)[i-1]);
-#endif
-
 	/* And connect up the PD to the PDP */
 	for (i = 0; i < NKPDPE; i++) {
 		((pdp_entry_t *)KPDPphys)[i + KPDPI] = KPDphys +
 		    (i << PAGE_SHIFT);
 		((pdp_entry_t *)KPDPphys)[i + KPDPI] |= PG_RW | PG_V | PG_U;
 	}
-    
-#if SVA_DEBUG
-    printf("PDP entry connect to pds\n");
-    printf("KPDPphys[0]:\t\t\t %p, val: 0x%lx\n",&((pdp_entry_t *)KPDPphys)[0],
-            ((pdp_entry_t *)KPDPphys)[0]);
-    printf("KPDPphys[1]:\t\t\t %p, val: 0x%lx\n",&((pdp_entry_t *)KPDPphys)[1],
-            ((pdp_entry_t *)KPDPphys)[1]);
-    printf("KPDPphys[2]:\t\t\t %p, val: 0x%lx\n",&((pdp_entry_t *)KPDPphys)[2],
-            ((pdp_entry_t *)KPDPphys)[2]);
-    printf("KPDPphys[25]:\t\t\t %p, val: 0x%lx\n",&((pdp_entry_t *)KPDPphys)[25],
-            ((pdp_entry_t *)KPDPphys)[25]);
-    printf("KPDPphys[%d]:\t\t\t %p, val: 0x%lx\n", i-1, &((pdp_entry_t *)KPDPphys)[i-1],
-            ((pdp_entry_t *)KPDPphys)[i-1]);
-#endif
-
-	/*
-	 * Now, set up the direct map region using 2MB and/or 1GB pages.  If
-	 * the end of physical memory is not aligned to a 1GB page boundary,
+	/* the end of physical memory is not aligned to a 1GB page boundary,
 	 * then the residual physical memory is mapped with 2MB pages.  Later,
 	 * if pmap_mapdev{_attr}() uses the direct map for non-write-back
 	 * memory, pmap_change_attr() will demote any 2MB or 1GB page mappings
@@ -596,54 +536,20 @@ create_pagetables(vm_paddr_t *firstaddr)
 		((pdp_entry_t *)DMPDPphys)[i] = DMPDphys + (j << PAGE_SHIFT);
 		((pdp_entry_t *)DMPDPphys)[i] |= PG_RW | PG_V | PG_U;
 	}
-#if SVA_DEBUG
-    printf("DMPDphys Addr: %p\n", DMPDphys);
-    printf("DMPDphys[0]:\t\t\t %p, val: 0x%lx\n",&((pdp_entry_t *)DMPDphys)[0],
-            ((pdp_entry_t *)DMPDphys)[0]);
-    printf("DMPDphys[1]:\t\t\t %p, val: 0x%lx\n",&((pdp_entry_t *)DMPDphys)[1],
-            ((pdp_entry_t *)DMPDphys)[1]);
-    printf("DMPDphys[2]:\t\t\t %p, val: 0x%lx\n",&((pdp_entry_t *)DMPDphys)[2],
-            ((pdp_entry_t *)DMPDphys)[2]);
-    printf("DMPDphys[%d]:\t\t\t %p, val: 0x%lx\n", i-1, &((pdp_entry_t *)DMPDphys)[i-1],
-            ((pdp_entry_t *)DMPDphys)[i-1]);
-#endif
-
 	/* And recursively map PML4 to itself in order to get PTmap */
 	((pdp_entry_t *)KPML4phys)[PML4PML4I] = KPML4phys;
 	((pdp_entry_t *)KPML4phys)[PML4PML4I] |= PG_RW | PG_V | PG_U;
 
-#if SVA_DEBUG
-    printf("KVA self reflecting spot:\t\t\t %p, %lx\n",&((pdp_entry_t *)KPML4phys)[PML4PML4I],
-            ((pdp_entry_t *)KPML4phys)[PML4PML4I]);
-#endif
-
-#if SVA_DEBUG
-    printf("PML4 DMAP Entries\n");
-#endif
 	/* Connect the Direct Map slot(s) up to the PML4. */
 	for (i = 0; i < NDMPML4E; i++) {
 		((pdp_entry_t *)KPML4phys)[DMPML4I + i] = DMPDPphys +
 		    (i << PAGE_SHIFT);
         ((pdp_entry_t *)KPML4phys)[DMPML4I + i] |= PG_RW | PG_V | PG_U;
-#if SVA_DEBUG
-        printf("KPML4phys[%d]: ptr:%p, val:%p\n", DMPML4I + i, 
-                &((pdp_entry_t *)KPML4phys)[DMPML4I + i],
-                 ((pdp_entry_t *)KPML4phys)[DMPML4I + i]
-              );
-#endif 
 	}
 
 	/* Connect the KVA slot up to the PML4 */
 	((pdp_entry_t *)KPML4phys)[KPML4I] = KPDPphys;
 	((pdp_entry_t *)KPML4phys)[KPML4I] |= PG_RW | PG_V | PG_U;
-
-#if SVA_DEBUG
-    printf("pml4[0]:\t\t\t %p: 0x%lx\n", &((pdp_entry_t *)KPML4phys)[0], 
-            ((pdp_entry_t *)KPML4phys)[0]);
-    printf("KVA slot to the pml4:\t\t\t %p: 0x%lx\n", &((pdp_entry_t *)KPML4phys)[KPML4I], 
-            ((pdp_entry_t *)KPML4phys)[KPML4I]);
-#endif 
-
 }
 
 /*
@@ -692,21 +598,7 @@ pmap_bootstrap(vm_paddr_t *firstaddr)
 #endif
 
 #ifdef SVA_MMU
-#if 0
-  /* 
-   * Set the static address locations in the struct here to aid in kernel MMU
-   * initialization. Note that we pass in the page mapping for the pml4 page.
-   * This function will also initialize the cr3.
-   */
-  sva_mmu_init (&((pdp_entry_t *)KPML4phys)[PML4PML4I],
-                NPDEPG,
-                firstaddr,
-                (uintptr_t)btext,
-                (uintptr_t)etext); 
-
-#endif
-#else /* !SVA_MMU */
-    load_cr3(KPML4phys);
+ 	load_cr3(KPML4phys);
 #endif
 
 	/*
@@ -1586,14 +1478,6 @@ pmap_qenter(vm_offset_t sva, vm_page_t *ma, int count)
              * dereferencing it causes a bug to disappear. Dereffing the pte is
              * required for it to work.
              */
-#if 0//SVA_DEBUG
-            pd_entry_t *pde = vtopde(sva);
-            pde = pde;
-            printf(">---- FBSD<pmap_qenter> VA: %p \n", sva);
-            printf("\tpde: %p, *pde: 0x%lx\n", pde, *pde);
-            printf("\tpte: %p, *pte: 0x%lx, physAddr: %p\n", pte, *pte, pa);
-#endif
-
             /* Update the initial mapping of the leaf page */
             sva_update_l1_mapping(pte, (pd_entry_t)(pa | PG_G | PG_RW | PG_V));
 #else
@@ -1906,11 +1790,6 @@ pmap_pinit(pmap_t pmap)
 	 */
 	pml4e_self = (pml4_entry_t *) &pmap->pm_pml4[PML4PML4I];
 
-#if 0//SVA_DEBUG
-	/* TODO: figure out if this check is needed. */
-	if ((pml4pg->flags & PG_ZERO) != 0)
-		panic("SVA: about to call declare l4 on a page that says not to zero");
-#endif
 	/* 
 	 * Declare the l4 page to SVA. This will initialize paging structures
 	 * and make the page table page as read only. 
@@ -1924,10 +1803,6 @@ pmap_pinit(pmap_t pmap)
 	 * automatically break the system. 
 	 */
 
-#if SVA_DEBUG
-	printf("CR0: %p, CR3: %p, CR4: %p\n",rcr0(), rcr3(), rcr4());
-	printf("Virtual Address: pml4: %p, *pml4: %p\n", pmap->pm_pml4, *pmap->pm_pml4);
-#endif
 	sva_declare_l4_page(VM_PAGE_TO_PHYS(pml4pg));
 #endif
 
@@ -1978,28 +1853,10 @@ pmap_pinit(pmap_t pmap)
     pmap->pm_pml4[PML4PML4I] = VM_PAGE_TO_PHYS(pml4pg) | PG_V | PG_RW | PG_A | PG_M;
 #endif
 
-#if SVA_DEBUG
-    printf("pmap->pm_root: %p, *pmap->pm_root: %p\n",&pmap->pm_root,pmap->pm_root);
-    printf("pmap: %p\n", pmap);
-    printf("DMAP phys of pmap: %p, pmap->pm_root: %p\n", DMAP_TO_PHYS((unsigned long) pmap),
-            DMAP_TO_PHYS((unsigned long)pmap->pm_root));
-
-    printf("CR0: %p, CR3: %p, CR4: %p\n",rcr0(), rcr3(), rcr4());
-    //sva_load_cr0( (rcr0() & ~CR0_WP) );
-    printf("CR0: %p, CR3: %p, CR4: %p\n",rcr0(), rcr3(), rcr4());
-#endif
-
     pmap->pm_root = NULL;
     CPU_ZERO(&pmap->pm_active);
 	TAILQ_INIT(&pmap->pm_pvchunk);
 	bzero(&pmap->pm_stats, sizeof pmap->pm_stats);
-
-#if SVA_DEBUG
-    printf("CR0: %p, CR3: %p, CR4: %p\n",rcr0(), rcr3(), rcr4());
-    //sva_load_cr0( (rcr0() | CR0_WP) );
-    printf("CR0: %p, CR3: %p, CR4: %p\n",rcr0(), rcr3(), rcr4());
-    //panic("\n---------\n");
-#endif
 
 	return (1);
 }
@@ -2058,15 +1915,10 @@ _pmap_allocpte(pmap_t pmap, vm_pindex_t ptepindex, int flags)
 		/* Wire up a new PDPE page */
 		pml4index = ptepindex - (NUPDE + NUPDPE);
 		pml4 = &pmap->pm_pml4[pml4index];
-
 #ifdef SVA_MMU
+	pdp_entry_t *pdp = (pdp_entry_t *)PHYS_TO_DMAP(VM_PAGE_TO_PHYS(m));
 
-		pdp_entry_t *pdp = (pdp_entry_t *)PHYS_TO_DMAP(VM_PAGE_TO_PHYS(m));
 
-#if SVA_DEBUG
-        printf("<<< FBSD __pmap_allocatepte: pre declare l3: ");
-        printf("%p, contents: 0x%lx\n", pdp, *pdp); 
-#endif
         /* 
          * Declare the l3 page to SVA. This will initialize paging structures
          * and make the page table page as read only
@@ -2112,11 +1964,6 @@ _pmap_allocpte(pmap_t pmap, vm_pindex_t ptepindex, int flags)
 		/* Now find the pdp page */
 		pdp = &pdp[pdpindex & ((1ul << NPDPEPGSHIFT) - 1)];
 
-#if 0//SVA_DEBUG
-        printf("<<< FBSD __pmap_allocatepte: pre declare va-pentry: ");
-        printf(" %p, contents: 0x%lx\n", pdp, *pdp); 
-#endif
-
 #ifdef SVA_MMU
         /* 
          * Declare the l2 page to SVA. This will initialize paging structures
@@ -2133,12 +1980,6 @@ _pmap_allocpte(pmap_t pmap, vm_pindex_t ptepindex, int flags)
 #else  /* !SVA_DEBUG */
 		*pdp = VM_PAGE_TO_PHYS(m) | PG_U | PG_RW | PG_V | PG_A | PG_M;
 #endif 
-
-#if 0//SVA_DEBUG
-        printf("<<< FBSD __pmap_allocatepte: post l2_update: ");
-        printf("%p, contents: 0x%lx\n", pdp, *pdp); 
-#endif
-
 	} else {
 		vm_pindex_t pml4index;
 		vm_pindex_t pdpindex;
@@ -2192,50 +2033,21 @@ _pmap_allocpte(pmap_t pmap, vm_pindex_t ptepindex, int flags)
 		/* Now we know where the page directory page is */
 		pd = &pd[ptepindex & ((1ul << NPDEPGSHIFT) - 1)];
 
-#if 0//SVA_DEBUG
-		printf("<<< FBSD __pmap_allocatepte: pre declare va-pentry: ");
-		printf("%p, contents: 0x%lx\n", pd, *pd); 
-#endif
-
 #ifdef SVA_MMU
 		/* 
 		 * Declare the l1 page to SVA. This will initialize paging structures
 		 * and make the page table entry referencing the new page as read only.
 		 */
-#if 0
-		printf("Pre dec l1: pde: %p, old mapping: 0x%lx\n", 
-						pd, *pd);
-#endif
 
 		sva_declare_l1_page(VM_PAGE_TO_PHYS(m));
-
-#if 0
-		printf("Post dec l1: pde: %p, old mapping: 0x%lx, new mapping: 0x%lx\n", 
-						pd, *pd, (pd_entry_t) (VM_PAGE_TO_PHYS(m) | PG_U | PG_RW | PG_V
-								| PG_A | PG_M));
-#endif
+		
 		/* Update the l2 mapping to the requested value */
 		sva_update_l2_mapping(pd, (pd_entry_t) (VM_PAGE_TO_PHYS(m) | PG_U |
 								PG_RW | PG_V | PG_A | PG_M));
 
-#if 0
-		printf("Post up l1: pde: %p, old mapping: 0x%lx, new mapping: 0x%lx\n",
-						pd, *pd, (pd_entry_t) (VM_PAGE_TO_PHYS(m) | PG_U | PG_RW | PG_V
-								| PG_A | PG_M));
-		*pd = VM_PAGE_TO_PHYS(m) | PG_U | PG_RW | PG_V | PG_A | PG_M;
-		printf("Post pde: %p, new mapping: 0x%lx\n", pd, *pd);
-		panic ("");
-#endif
-
 #else  /* !SVA_DEBUG */
 		*pd = VM_PAGE_TO_PHYS(m) | PG_U | PG_RW | PG_V | PG_A | PG_M;
 #endif 
-
-#if 0//SVA_DEBUG
-        printf("<<< FBSD __pmap_allocatepte: post l2_update: ");
-        printf("%p, contents: 0x%lx\n", pd, *pd); 
-#endif
-
 	}
 
 	pmap_resident_count_inc(pmap, 1);
@@ -2472,6 +2284,7 @@ pmap_growkernel(vm_offset_t addr)
 			 * Declare the l2 page to SVA. This will initialize paging
 			 * structures and make the page table page as read only
 			 */
+
 			sva_declare_l2_page(paddr);
 
 			/*

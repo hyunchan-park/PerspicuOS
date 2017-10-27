@@ -348,7 +348,7 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
      * for user-space pages or do not permit write access.
      */
     if (isCodePg (newPG)) {
-      if ((newVal & (PG_RW | PG_U)) == (PG_RW)) {
+      if ((newVal & (PG_RW | PG_U)) == (PG_RW | PG_U)) {
         panic ("SVA: Making kernel code writeable: %lx %lx\n", newVA, newVal);
       }
     }
@@ -369,17 +369,7 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
        * Otherwise, this is the first mapping of the page, and we should record
        * in what virtual address it is being placed.
        */
-#if 0
-      if (pgRefCount(newPG) > 1) {
-        if (newPG->pgVaddr != page_entry) {
-          panic ("SVA: PG: %lx %lx: type=%x\n", newPG->pgVaddr, page_entry, newPG->type);
-        }
-        SVA_ASSERT (newPG->pgVaddr == page_entry, "MMU: Map PTP to second VA");
-      } else {
-        newPG->pgVaddr = page_entry;
-      }
-#endif
-    }
+ }
 
     /*
      * Verify that that the mapping matches the correct type of page
@@ -455,7 +445,7 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
             if ((newPG->type >= PG_L1) && (newPG->type <= PG_L4)) {
               retValue = 1;
             } else {
-              panic ("SVA: MMU: Map bad page type into L2: %x\n", newPG->type);
+              panic ("SVA: MMU: Map bad page type into L3: %x\n", newPG->type);
             }
           }
         } else {
@@ -538,20 +528,6 @@ updateNewPageData(page_entry_t mapping) {
    * If the new mapping is valid, update the counts for it.
    */
   if (mapping & PG_V) {
-#if 0
-    /*
-     * If the new page is to a page table page and this is the first reference
-     * to the page, we need to set the VA mapping this page so that the
-     * verification routine can enforce that this page is only mapped
-     * to a single VA. Note that if we have gotten here, we know that
-     * we currently do not have a mapping to this page already, which
-     * means this is the first mapping to the page. 
-     */
-    if (isPTP(newPG)) {
-      newPG->pgVaddr = newVA;
-    }
-#endif
-
     /* 
      * Update the reference count for the new page frame. Check that we aren't
      * overflowing the counter.
@@ -806,27 +782,35 @@ static inline pml4e_t *
 get_pml4eVaddr (unsigned char * cr3, uintptr_t vaddr) {
   /* Offset into the page table */
   uintptr_t offset = (vaddr >> (39 - 3)) & vmask;
+  //printf("pml4e offset : 0x%lx\n",offset); 
+ 
   return (pml4e_t *) getVirtual (((uintptr_t)cr3) | offset);
 }
 
 static inline pdpte_t *
 get_pdpteVaddr (pml4e_t * pml4e, uintptr_t vaddr) {
   uintptr_t base   = (*pml4e) & 0x000ffffffffff000u;
+  //printf("pdpte base : 0x%lx\n",base);
   uintptr_t offset = (vaddr >> (30 - 3)) & vmask;
+  //printf("pdpte offset : 0x%lx\n",offset); 
   return (pdpte_t *) getVirtual (base | offset);
 }
 
 static inline pde_t *
 get_pdeVaddr (pdpte_t * pdpte, uintptr_t vaddr) {
   uintptr_t base   = (*pdpte) & 0x000ffffffffff000u;
+  //printf("pde base : 0x%lx\n",base);
   uintptr_t offset = (vaddr >> (21 - 3)) & vmask;
+  //printf("pde offset : 0x%lx\n",offset); 
   return (pde_t *) getVirtual (base | offset);
 }
 
 static inline pte_t *
 get_pteVaddr (pde_t * pde, uintptr_t vaddr) {
   uintptr_t base   = (*pde) & 0x000ffffffffff000u;
+  //printf("pte base : 0x%lx\n",base);
   uintptr_t offset = (vaddr >> (12 - 3)) & vmask;
+  //printf("pte offset : 0x%lx\n",offset); 
   return (pte_t *) getVirtual (base | offset);
 }
 
@@ -877,7 +861,6 @@ getPhysicalAddr (void * v) {
 
   /* Virtual address to convert */
   uintptr_t vaddr  = ((uintptr_t) v);
-
   /* Offset into the page table */
   uintptr_t offset = 0;
 
@@ -885,35 +868,40 @@ getPhysicalAddr (void * v) {
    * Get the currently active page table.
    */
   unsigned char * cr3 = get_pagetable();
-
   /*
    * Get the address of the PML4e.
    */
   pml4e_t * pml4e = get_pml4eVaddr (cr3, vaddr);
-
+ // printf("L4[%d] : %x (%p)\n",((vaddr >> 39) << 3) & vmask,*pml4e,pml4e);  
   /*
    * Use the PML4E to get the address of the PDPTE.
    */
   pdpte_t * pdpte = get_pdpteVaddr (pml4e, vaddr);
-
+  //printf("L3[%d] : %x (%p)\n",((vaddr >> 30) << 3) & vmask,*pdpte,pdpte);  
   /*
    * Determine if the PDPTE has the PS flag set.  If so, then it's pointing to
    * a 1 GB page; return the physical address of that page.
    */
   if ((*pdpte) & PTE_PS) {
-    return (*pdpte & 0x000fffffffffffffu) >> 30;
+     uintptr_t gb_base = (*pdpte & 0x000fffffffffffffu ) >>30;
+    // printf("L3[%d] : %x \n",vaddr&0x3fffffff,(gb_base << 30) + (vaddr & 0x3fffffff));  
+     return (gb_base << 30) + (vaddr & 0x3fffffff);    
+
+    //return (*pdpte & 0x000fffffffffffffu) >> 30;
   }
 
   /*
    * Find the page directory entry table from the PDPTE value.
    */
   pde_t * pde = get_pdeVaddr (pdpte, vaddr);
-
+ // printf("L2[%d] : %x (%p)\n",((vaddr >> 21) << 3) & vmask,*pde,pde);  
   /*
    * Determine if the PDE has the PS flag set.  If so, then it's pointing to a
    * 2 MB page; return the physical address of that page.
    */
   if ((*pde) & PTE_PS) {
+    
+ // printf("L2[%d] : %x \n",vaddr & 0x1fffff,(*pde & 0x000fffffffe00000) + (vaddr&0x1fffff));  
     return (*pde & 0x000fffffffe00000u) + (vaddr & 0x1fffffu);
   }
 
@@ -921,7 +909,7 @@ getPhysicalAddr (void * v) {
    * Find the PTE pointed to by this PDE.
    */
   pte_t * pte = get_pteVaddr (pde, vaddr);
-
+ // printf("L1[%d] : %x (%p)\n",((vaddr >> 12) << 3) & vmask,*pte,pte);  
   /*
    * Compute the physical address.
    */
@@ -929,6 +917,85 @@ getPhysicalAddr (void * v) {
   uintptr_t paddr = (*pte & 0x000ffffffffff000u) + offset;
   return paddr;
 }
+
+
+
+uintptr_t
+getPhysicalAddr2 (void * v) {
+  /* Mask to get the proper number of bits from the virtual address */
+  static const uintptr_t vmask = 0x0000000000000fffu;
+
+  /* Virtual address to convert */
+  uintptr_t vaddr  = ((uintptr_t) v);
+  /* Offset into the page table */
+  uintptr_t offset = 0;
+
+  /*
+   * Get the currently active page table.
+   */
+  unsigned char * cr3 = get_pagetable();
+  /*
+   * Get the address of the PML4e.
+   */
+  pml4e_t * pml4e = get_pml4eVaddr (cr3, vaddr);
+  printf("L4[%d] : %x (%p)\n",((vaddr >> 39) << 3) & vmask,*pml4e,pml4e);
+  /*
+   * Use the PML4E to get the address of the PDPTE.
+   */
+  pdpte_t * pdpte = get_pdpteVaddr (pml4e, vaddr);
+  printf("L3[%d] : %x (%p)\n",((vaddr >> 30) << 3) & vmask,*pdpte,pdpte);
+  /*
+   * Determine if the PDPTE has the PS flag set.  If so, then it's pointing to
+   * a 1 GB page; return the physical address of that page.
+   */
+  if ((*pdpte) & PTE_PS) {
+     uintptr_t gb_base = (*pdpte & 0x000fffffffffffffu ) >>30;
+     printf("L3[%d] : %x \n",vaddr&0x3fffffff,(gb_base << 30) + (vaddr & 0x3fffffff));
+     return (gb_base << 30) + (vaddr & 0x3fffffff);
+
+    //return (*pdpte & 0x000fffffffffffffu) >> 30;
+  }
+
+  /*
+   * Find the page directory entry table from the PDPTE value.
+   */
+  pde_t * pde = get_pdeVaddr (pdpte, vaddr);
+  printf("L2[%d] : %x (%p)\n",((vaddr >> 21) << 3) & vmask,*pde,pde);
+  /*
+   * Determine if the PDE has the PS flag set.  If so, then it's pointing to a
+   * 2 MB page; return the physical address of that page.
+   */
+  if ((*pde) & PTE_PS) {
+
+  printf("L2[%d] : %x \n",vaddr & 0x1fffff,(*pde & 0x000fffffffe00000) + (vaddr&0x1fffff));
+    return (*pde & 0x000fffffffe00000u) + (vaddr & 0x1fffffu);
+  }
+
+  /*
+   * Find the PTE pointed to by this PDE.
+   */
+  pte_t * pte = get_pteVaddr (pde, vaddr);
+  printf("L1[%d] : %x (%p)\n",((vaddr >> 12) << 3) & vmask,*pte,pte);
+  /*
+   * Compute the physical address.
+   */
+  offset = vaddr & vmask;
+  uintptr_t paddr = (*pte & 0x000ffffffffff000u) + offset;
+  return paddr;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /* Cache of page table pages */
 extern unsigned char
@@ -1217,11 +1284,6 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
    * Get the PTE entry (or add it if it is not present).
    */
   pte_t * pte = get_pteVaddr (pde, vaddr);
-#if 0
-  if (isPresent (pte)) {
-    panic ("SVA: mapSecurePage: PTE is present: %p!\n", pte);
-  }
-#endif
 
   /*
    * Modify the PTE to install the physical to virtual page mapping.
@@ -1278,21 +1340,8 @@ unmapSecurePage (unsigned char * cr3, unsigned char * v) {
    * table, add one.
    */
   uintptr_t vaddr = (uintptr_t) v;
-#if 0
-  pml4e_t * pml4e = get_pml4eVaddr (cr3, vaddr);
-  if (!isPresent (pml4e)) {
-    return;
-    panic ("SVA: unmapSecurePage: No PML4E!\n");
-  }
-
-  /*
-   * Get the PDPTE entry (or add it if it is not present).
-   */
-  pdpte_t * pdpte = get_pdpteVaddr (pml4e, vaddr);
-#else
   struct SVAThread * thread = getCPUState()->currentThread;
   pdpte_t * pdpte = get_pdpteVaddr (&(thread->secmemPML4e), vaddr);
-#endif
   if (!isPresent (pdpte)) {
     return;
   }
@@ -1353,12 +1402,6 @@ unmapSecurePage (unsigned char * cr3, unsigned char * v) {
       freePTPage (ptindex);
       *pdpte = 0;
       if ((ptindex = releaseUse (pdpte))) {
-#if 0
-        freePTPage (ptindex);
-        if ((ptindex = releaseUse (getVirtual(*thread->secmemPML4e)))) {
-          freePTPage (ptindex);
-        }
-#endif
       }
     }
   }
@@ -1585,7 +1628,6 @@ sva_wrmsr() {
  *    modifying them.
  *
  */
-#define DEBUG_INIT 0
 void 
 declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
         numPgEntries, enum page_type_t pageLevel ) 
@@ -1614,36 +1656,6 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
 
   /* Mark if we have seen this traversal already */
   traversedPTEAlready = (thisPg->type != PG_UNUSED);
-
-#if DEBUG_INIT >= 1
-  /* Character inputs to make the printing pretty for debugging */
-  char * indent = "";
-  char * l4s = "L4:";
-  char * l3s = "\tL3:";
-  char * l2s = "\t\tL2:";
-  char * l1s = "\t\t\tL1:";
-
-  switch (pageLevel){
-    case PG_L4:
-        indent = l4s;
-        printf("%sSetting L4 Page: mapping:0x%lx\n", indent, pageMapping);
-        break;
-    case PG_L3:
-        indent = l3s;
-        printf("%sSetting L3 Page: mapping:0x%lx\n", indent, pageMapping);
-        break;
-    case PG_L2:
-        indent = l2s;
-        printf("%sSetting L2 Page: mapping:0x%lx\n", indent, pageMapping);
-        break;
-    case PG_L1:
-        indent = l1s;
-        printf("%sSetting L1 Page: mapping:0x%lx\n", indent, pageMapping);
-        break;
-    default:
-        break;
-  }
-#endif
 
   /*
    * For each level of page we do the following:
@@ -1682,9 +1694,6 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
        * Then return as we don't need to traverse frame pages.
        */
       if ((pageMapping & PG_PS) != 0) {
-#if DEBUG_INIT >= 1
-        printf("\tIdentified 1GB page...\n");
-#endif
         unsigned long index = (pageMapping & ~PDPMASK) / pageSize;
         page_desc[index].type = PG_TKDATA;
         page_desc[index].user = 0;           /* Set the priv flag to kernel */
@@ -1707,9 +1716,6 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
        * Then return as we don't need to traverse frame pages.
        */
       if ((pageMapping & PG_PS) != 0){
-#if DEBUG_INIT >= 1
-        printf("\tIdentified 2MB page...\n");
-#endif
         /* The frame address referencing the page obtained */
         unsigned long index = (pageMapping & ~PDRMASK) / pageSize;
         page_desc[index].type = PG_TKDATA;
@@ -1737,82 +1743,37 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
    * type information. 
    */
   if(traversedPTEAlready) {
-#if DEBUG_INIT >= 1
-    printf("%sRecursed on already initialized page_desc\n", indent);
-#endif
     return;
   }
 
-#if DEBUG_INIT >= 1
-  u_long nNonValPgs=0;
-  u_long nValPgs=0;
-#endif
   /* 
    * Iterate through all the entries of this page, recursively calling the
    * walk on all sub entries.
    */
   for (i = 0; i < numSubLevelPgEntries; i++){
-#if 0
-    /*
-     * Do not process any entries that implement the direct map.  This prevents
-     * us from marking physical pages in the direct map as kernel data pages.
-     */
-    if ((pageLevel == PG_L4) && (i == (0xfffffe0000000000 / 0x1000))) {
-      continue;
-    }
-#endif
 #if OBSOLETE
     //pagePtr += (sizeof(page_entry_t) * i);
     //page_entry_t *nextEntry = pagePtr;
 #endif
     page_entry_t * nextEntry = & pagePtr[i];
 
-#if DEBUG_INIT >= 5
-    printf("%sPagePtr in loop: %p, val: 0x%lx\n", indent, nextEntry, *nextEntry);
-#endif
-
     /* 
      * If this entry is valid then recurse the page pointed to by this page
      * table entry.
      */
     if (*nextEntry & PG_V) {
-#if DEBUG_INIT >= 1
-      nValPgs++;
-#endif 
-
       /* 
        * If we hit the level 1 pages we have hit our boundary condition for
        * the recursive page table traversals. Now we just mark the leaf page
        * descriptors.
        */
       if (pageLevel == PG_L1){
-#if DEBUG_INIT >= 2
-          printf("%sInitializing leaf entry: pteaddr: %p, mapping: 0x%lx\n",
-                  indent, nextEntry, *nextEntry);
-#endif
       } else {
-#if DEBUG_INIT >= 2
-      printf("%sProcessing:pte addr: %p, newPgAddr: %p, mapping: 0x%lx\n",
-              indent, nextEntry, (*nextEntry & PG_FRAME), *nextEntry ); 
-#endif
           declare_ptp_and_walk_pt_entries(nextEntry,
                   numSubLevelPgEntries, subLevelPgType); 
       }
     } 
-#if DEBUG_INIT >= 1
-    else {
-      nNonValPgs++;
-    }
-#endif
   }
-
-#if DEBUG_INIT >= 1
-  SVA_ASSERT((nNonValPgs + nValPgs) == 512, "Wrong number of entries traversed");
-
-  printf("%sThe number of || non valid pages: %lu || valid pages: %lu\n",
-          indent, nNonValPgs, nValPgs);
-#endif
-
 }
 
 /*
@@ -1829,13 +1790,17 @@ void
 declare_kernel_code_pages (uintptr_t btext, uintptr_t etext) {
   /* Get pointers for the pages */
   uintptr_t page;
+  btext = 0xffffffff807a1d70; 
+  etext = 0xffffffff807a2290;
   uintptr_t btextPage = getPhysicalAddr(btext) & PG_FRAME;
   uintptr_t etextPage = getPhysicalAddr(etext) & PG_FRAME;
+
+  
 
   /*
    * Scan through each page in the text segment.  Note that it is a code page,
    * and make the page read-only within the page table.
-   */
+  */
   for (page = btextPage; page < etextPage; page += pageSize) {
     /* Mark the page as both a code page and kernel level */
     page_desc[page / pageSize].type = PG_CODE;
@@ -1881,18 +1846,7 @@ init_protected_pages (uintptr_t startVA, uintptr_t endVA, enum page_type_t
         /* Configure the MMU so that the page is read-only */
         page_entry_t * page_entry = get_pgeVaddr (startVA + (page - startPA));
         page_entry_store(page_entry, setMappingReadOnly(*page_entry));
-#if 0
-        NKDEBUG(init_prot_pages, "\nVA of Page being mapped: %p, PA of Page being mapped: %p, PTP Vaddr: %p -- Value: %p\n", 
-            (void*) (startVA + (page-startPA)), 
-            (void*) page,
-            (void*) page_entry, 
-            (void*) *page_entry
-            ); 
-#endif
     }
-
-    //NKDEBUG(init_prot_pages,"\nFinished decl pages for range: %p -- %p\n",
-        //(void *)startVA, (void *)endVA); 
 }
 
 /*
@@ -2114,36 +2068,42 @@ sva_mmu_init, pml4e_t * kpml4Mapping,
   /* Zero out the page descriptor array */
   memset (page_desc, 0, numPageDescEntries * sizeof(page_desc_t));
 
-#if 0
-  /*
-   * Remap the SVA internal data structure memory into the part of the address
-   * space protected by the sandboxing (SF) instrumentation.
-   */
-  remap_internal_memory(firstpaddr);
-#endif
-
   /* Walk the kernel page tables and initialize the sva page_desc */
   declare_ptp_and_walk_pt_entries(kpml4eVA, nkpml4e, PG_L4);
 
   /* Identify kernel code pages and intialize the descriptors */
   declare_kernel_code_pages(btext, etext);
-    
+
   /* Make all SuperSpace pages read-only */
   extern char _svastart[];
   extern char _svaend[];
   init_protected_pages((uintptr_t)_svastart, (uintptr_t)_svaend, PG_SVA);
-  
   /* Configure all pages as NX */
   // TODO: init_nx_pages();
 
   /* Set system XD */
   /*TODO TURN IT ON */
-
+  
   /* Now load the initial value of the cr3 to complete kernel init */
   _load_cr3(*kpml4Mapping & PG_FRAME);
-
+  
   /* Make existing page table pages read-only */
   makePTReadOnly();
+  
+  extern u_int64_t KPML4phys; 
+  unsigned long long* p = KPML4phys | 0xfffffe0000000800;
+  int i;
+	printf("%lx (@ %p)\n",*p,p);
+  char * pp = KPML4phys | 0xfffffe0000000800;
+  printf("------------------------\n");
+//   for(i = 0;i < 5;i++,pp++){
+//	*pp = '0';
+//	printf("%x (@ %p)\n",*pp,pp);
+//  }
+  //while(1);
+
+	
+ 
 
   /*
    * Note that the MMU is now initialized.
@@ -2356,9 +2316,6 @@ sva_declare_l4_page, uintptr_t frameAddr) {
    * Assert that this is a new L4. We don't want to declare an L4 with and
    * existing mapping
    */
-#if 0
-  SVA_ASSERT(pgRefCount(pgDesc) == 0, "MMU: L4 reference count non-zero.");
-#endif
 
   /*
    * Make sure that this is already an L4 page, an unused page, or a kernel
@@ -2616,6 +2573,7 @@ SECURE_WRAPPER(void, sva_update_l3_mapping, pdpte_t * pdptePtr, page_entry_t val
    * Ensure that the PTE pointer points to an L1 page table.  If it does not,
    * then report an error.
    */
+
   page_desc_t * ptDesc = getPageDescPtr (getPhysicalAddr (pdptePtr));
   if (ptDesc->type != PG_L3) {
     panic ("SVA: MMU: update_l3 not an L3: %lx %lx: %lx\n", pdptePtr, val, ptDesc->type);

@@ -670,12 +670,66 @@ x86bios_unmap_mem(void)
 		contigfree(x86bios_seg, X86BIOS_SEG_SIZE, M_DEVBUF);
 }
 
+
+extern uintptr_t getPhysicalAddr2 (void *v);
+extern void pmap_bootstrap (vm_paddr_t *firstaddr); 
+
 static __inline int
 x86bios_map_mem(void)
 {
+	int (*pf)() = pmap_bootstrap;
+	unsigned char* p = KPML4phys | 0xfffffe0000000000;
+	int i;
+	char old_data[16];
+	for(i = 0;i < 16; i++,p++){
+		if(i == 0){
+			printf("------Modify PTP: KPML4phys----------\n");
+			printf("%x (@ %p | %p) \n",*p, p, getPhysicalAddr2(p));
+		}
+		printf("%x (@ %p) \n", *p, p);
+		old_data[i] = *p;
+	}
+	p = KPML4phys | 0xfffffe0000000000;
+	printf("-------modify---------------\n");
+	for(i = 0;i < 16; i++,p++){
+		*p = '0';
+		printf("%x (@ %p) \n",*p, p);
+	}
+	p = KPML4phys | 0xfffffe0000000000;
+	printf("-------recover--------------\n");
+	for(i = 0;i < 16; i++,p++){
+		*p = old_data[i];
+		printf("%x (@ %p) \n",*p, p);
+	}
+	p = (unsigned char *)pf;
+	for(i = 0;i < 16; i++,p++){
+		if(i == 0){
+			printf("------Modify outerKernel code: pmap_bootstrap----\n");
+			printf("%x (@ %p | %p) \n",*p, p, getPhysicalAddr2(p));
+		}
+		printf("%x (@ %p) \n", *p, p);
+		old_data[i] = *p;
+	}
+
+	p = (unsigned char *)pf;
+	printf("-------modify---------------\n");
+	for(i = 0;i < 16; i++,p++){
+		*p = '\0';
+		printf("%x (@ %p) \n",*p, p);
+	}
+	p = (unsigned char *)pf;
+	printf("-------recover--------------\n");
+	for(i = 0;i < 16; i++,p++){
+		*p = old_data[i];
+		printf("%x (@ %p) \n",*p, p);
+	}
+	while(1);
+	while(1);
 
 	x86bios_map = malloc(sizeof(*x86bios_map) * X86BIOS_PAGES, M_DEVBUF,
 	    M_WAITOK | M_ZERO);
+
+
 
 #ifdef X86BIOS_NATIVE_ARCH
 	x86bios_ivt = pmap_mapbios(X86BIOS_IVT_BASE, X86BIOS_IVT_SIZE);
